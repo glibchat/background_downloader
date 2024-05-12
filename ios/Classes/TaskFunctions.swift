@@ -484,20 +484,24 @@ func postOnBackgroundChannel(method: String, task:Task, arg: Any) -> Bool {
         }
         return true
     }
+    let semaphore = DispatchSemaphore(value: 0)
     var success = false
-    updatesQueue.sync {
-        let dispatchGroup = DispatchGroup()
-        dispatchGroup.enter()
-        DispatchQueue.main.async {
-            channel.invokeMethod(method, arguments: argsList, result: {(r: Any?) -> () in
-                success = !(r is FlutterError)
-                if BDPlugin.forceFailPostOnBackgroundChannel {
-                    success = false
-                }
-                dispatchGroup.leave()
-            })
+
+    DispatchQueue.main.async {
+        channel.invokeMethod(method, arguments: argsList) { result in
+            switch result {
+            case nil:
+                os_log("Method call succeeded without result", log: log, type: .info)
+                success = true
+            case let error as FlutterError:
+                os_log("Flutter error: %@", log: log, type: .error, error.message ?? "No message")
+                success = false
+            default:
+                os_log("Unknown response type", log: log, type: .error)
+                success = false
+            }
+            semaphore.signal()
         }
-        dispatchGroup.wait()
     }
     return success
 }
